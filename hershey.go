@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 //go:embed fonts/*.jhf
@@ -63,6 +64,35 @@ func List() []string {
 	return ls
 }
 
+// altGlyphs are substitute glyphs for some useful but frequently
+// omitted characters.
+var altGlyphs = map[int]Glyph{
+	' ': {
+		Left:  -8,
+		Right: 8,
+	},
+	'-': {
+		Left:  -13,
+		Right: 13,
+		Strokes: [][][2]int{
+			[][2]int{
+				{-9, 0},
+				{10, 0},
+			},
+		},
+	},
+	39: {
+		Left:  -2,
+		Right: 2,
+		Strokes: [][][2]int{
+			[][2]int{
+				{1, -12},
+				{1, -5},
+			},
+		},
+	},
+}
+
 // New unpacks a named font if known.
 func New(name string) (*Font, error) {
 	path := fmt.Sprint(fontDir, name, ".jhf")
@@ -70,12 +100,16 @@ func New(name string) (*Font, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to read %q (%q)", name, path)
 	}
+	const col = 8
 	font := make(map[int]string)
+	// Generate some defaults for common omissions.
+	for k, gl := range altGlyphs {
+		font[k] = gl.Marshal(k)[col:]
+	}
 	autoInc := 1
 	pending := ""
 	for i, f := range bytes.Split(fs, []byte("\n")) {
 		pending = pending + string(f)
-		const col = 8
 		if pending == "" {
 			continue // typically the last line
 		}
@@ -174,6 +208,63 @@ func (font *Font) Scan() <-chan int {
 		}
 	}()
 	return indices
+}
+
+// Text returns a single Glyph capturing some sequence of text
+// rendered in the specified font. No effort is made to scale the
+// text. The Glyph Left and Right values are from the inherited Font's
+// dimensions. The returned xL and xR values are the true extremes in
+// those directions.
+func (font *Font) Text(text string) (gl Glyph, xL, xR int) {
+	var left, right, top, bottom int
+	first := true
+	for len(text) > 0 {
+		r, size := utf8.DecodeRuneInString(text)
+		text = text[size:]
+		ch := int(r)
+		detail, err := font.Strokes(ch)
+		if err != nil {
+			// Treat missing entries as spaces.
+			detail = altGlyphs[' ']
+		}
+		if first {
+			left = detail.Left
+			right = detail.Left
+		}
+		wide := detail.Right - detail.Left
+		if first || top > detail.Top {
+			top = detail.Top
+		}
+		if first || bottom < detail.Bottom {
+			bottom = detail.Bottom
+		}
+		for _, line := range detail.Strokes {
+			var final [][2]int
+			for _, pt := range line {
+				actual := [2]int{
+					pt[0] - detail.Left + right,
+					pt[1],
+				}
+				final = append(final, actual)
+				if first {
+					xL = actual[0]
+					xR = actual[0]
+					first = false
+				} else if actual[0] < xL {
+					xL = actual[0]
+				} else if actual[0] > xR {
+					xR = actual[0]
+				}
+			}
+			gl.Strokes = append(gl.Strokes, final)
+		}
+		right += wide
+	}
+	gl.Left = left
+	gl.Right = right
+	gl.Top = top
+	gl.Bottom = bottom
+	return
 }
 
 // Marshal encodes a Glyph into its stored format.

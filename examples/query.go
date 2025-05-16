@@ -13,7 +13,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"zappem.net/pub/graphics/hershey"
 )
@@ -176,35 +175,6 @@ func show(ft *hershey.Font, xl map[int]int, gl int) {
 	render(im)
 }
 
-// altGlyphs are substitute glyphs for some useful but frequently
-// omitted characters.
-var altGlyphs = map[int]hershey.Glyph{
-	' ': {
-		Left:  -8,
-		Right: 8,
-	},
-	'-': {
-		Left:  -13,
-		Right: 13,
-		Strokes: [][][2]int{
-			[][2]int{
-				{-9, 0},
-				{10, 0},
-			},
-		},
-	},
-	39: {
-		Left:  -2,
-		Right: 2,
-		Strokes: [][][2]int{
-			[][2]int{
-				{1, -12},
-				{1, -5},
-			},
-		},
-	},
-}
-
 func main() {
 	flag.Parse()
 
@@ -254,57 +224,18 @@ func main() {
 				lookup[v] = k
 			}
 		}
-		text := *banner
-		var left, right, top, bottom int
-		first := true
-		var details []hershey.Glyph
-		for len(text) > 0 {
-			r, size := utf8.DecodeRuneInString(text)
-			ch := int(r)
-			alias, ok := lookup[ch]
-			if ok {
-				ch = alias
-			}
-			detail, err := ft.Strokes(ch)
-			if err != nil {
-				detail, ok = altGlyphs[ch]
-				if !ok {
-					// Treat missing entries as spaces.
-					detail = altGlyphs[' ']
+		composite, xL, xR := ft.Text(*banner)
+		im := image.NewGray16(image.Rect(xL-1, composite.Top-1, xR+1, composite.Bottom+1))
+		for _, line := range composite.Strokes {
+			var old [2]int
+			for i, cs := range line {
+				if i == 0 {
+					scribe(im, cs[0], cs[1], cs[0], cs[1])
+				} else {
+					scribe(im, old[0], old[1], cs[0], cs[1])
 				}
+				old = cs
 			}
-			details = append(details, detail)
-			if first {
-				left = detail.Left
-				right = detail.Left
-			}
-			wide := detail.Right - detail.Left
-			right += wide
-			if first || top > detail.Top {
-				top = detail.Top
-			}
-			if first || bottom < detail.Bottom {
-				bottom = detail.Bottom
-			}
-			first = false
-			text = text[size:]
-		}
-		im := image.NewGray16(image.Rect(left, top, right, bottom))
-		for _, detail := range details {
-			wide := detail.Right - detail.Left
-			center := left + (wide+1)/2
-			for _, line := range detail.Strokes {
-				var old [2]int
-				for i, cs := range line {
-					if i == 0 {
-						scribe(im, center+cs[0], cs[1], center+cs[0], cs[1])
-					} else {
-						scribe(im, center+old[0], old[1], center+cs[0], cs[1])
-					}
-					old = cs
-				}
-			}
-			left += wide
 		}
 		render(im)
 	}
@@ -315,9 +246,6 @@ func main() {
 		}
 
 		gls := make(map[int]hershey.Glyph)
-		for k, gl := range altGlyphs {
-			gls[k] = gl
-		}
 		for k, v := range xl {
 			gl, err := ft.Strokes(k)
 			if err != nil {
