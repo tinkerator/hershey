@@ -135,6 +135,21 @@ func render(im *image.Gray16) {
 	}
 }
 
+func enscribe(im *image.Gray16, gl hershey.Glyph) {
+	for _, line := range gl.Strokes {
+		var old [2]int
+		for i, cs := range line {
+			if i == 0 {
+				scribe(im, cs[0], cs[1], cs[0], cs[1])
+			} else {
+				scribe(im, old[0], old[1], cs[0], cs[1])
+			}
+			old = cs
+		}
+	}
+	render(im)
+}
+
 func show(ft *hershey.Font, xl map[int]int, gl int) {
 	detail, err := ft.Strokes(gl)
 	if err != nil {
@@ -161,18 +176,7 @@ func show(ft *hershey.Font, xl map[int]int, gl int) {
 		bottom = detail.Bottom
 	}
 	im := image.NewGray16(image.Rect(left, base, detail.Right+1, bottom))
-	for _, line := range detail.Strokes {
-		var old [2]int
-		for i, cs := range line {
-			if i == 0 {
-				scribe(im, cs[0], cs[1], cs[0], cs[1])
-			} else {
-				scribe(im, old[0], old[1], cs[0], cs[1])
-			}
-			old = cs
-		}
-	}
-	render(im)
+	enscribe(im, detail)
 }
 
 func main() {
@@ -226,18 +230,7 @@ func main() {
 		}
 		composite, xL, xR := ft.Text(*banner)
 		im := image.NewGray16(image.Rect(xL-1, composite.Top-1, xR+1, composite.Bottom+1))
-		for _, line := range composite.Strokes {
-			var old [2]int
-			for i, cs := range line {
-				if i == 0 {
-					scribe(im, cs[0], cs[1], cs[0], cs[1])
-				} else {
-					scribe(im, old[0], old[1], cs[0], cs[1])
-				}
-				old = cs
-			}
-		}
-		render(im)
+		enscribe(im, composite)
 	}
 
 	if *dest != "" {
