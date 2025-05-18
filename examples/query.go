@@ -31,28 +31,34 @@ var (
 
 // scribe renders a width 1 pixel gray line from (x0,y0) to (x1,y1) on im.
 func scribe(im *image.Gray16, x0, y0, x1, y1 int) {
-	if x1 < x0 {
-		x0, y0, x1, y1 = x1, y1, x0, y0
+	sx, sy := 1, 1
+	if x0 > x1 {
+		sx = -1
 	}
-	dx, dy := x1-x0, y1-y0
-	inc := 1
-	if dy < 0 {
-		dy = -dy
-		inc = -1
+	if y0 > y1 {
+		sy = -1
 	}
-	im.Set(x1, y1, color.Gray{1})
-	if dx > dy {
-		for x := x0; x != x1; x++ {
-			y := y0 + inc*(x-x0)*dy/dx
-			im.Set(x, y, color.Gray{1})
-		}
-		return
-	}
-	for y := y0; y != y1; y += inc {
-		x := x0 + inc*(y-y0)*dx/dy
+	dx, dy := sx*(x1-x0), -sy*(y1-y0)
+	er := dx + dy
+	x, y := x0, y0
+	for {
 		im.Set(x, y, color.Gray{1})
+		e2 := 2 * er
+		if e2 >= dy {
+			if x == x1 {
+				break
+			}
+			er += dy
+			x += sx
+		}
+		if e2 <= dx {
+			if y == y1 {
+				break
+			}
+			er += dx
+			y += sy
+		}
 	}
-	return
 }
 
 // loadXlate loads the translation files (*.utf8) for fonts.
