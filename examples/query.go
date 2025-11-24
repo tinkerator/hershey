@@ -61,13 +61,20 @@ func scribe(im *image.Gray16, x0, y0, x1, y1 int) {
 	}
 }
 
+type XLate struct {
+	// utf8 to glyph code for font.
+	to map[int]int
+}
+
 // loadXlate loads the translation files (*.utf8) for fonts.
-func loadXlate(path string) map[int]int {
+func loadXlate(path string) *XLate {
 	d, err := os.ReadFile(path)
 	if err != nil {
 		return nil // no translation file
 	}
-	xlt := make(map[int]int)
+	xlt := &XLate{
+		to: make(map[int]int),
+	}
 	for i, line := range bytes.Split(d, []byte("\n")) {
 		var text string
 		if first := bytes.Index(line, []byte("#")); first != -1 {
@@ -78,10 +85,23 @@ func loadXlate(path string) map[int]int {
 		fields := strings.Fields(text)
 		switch len(fields) {
 		case 0:
+			// ignore the line
 			continue
 		case 2:
+			if fields[0] == "alt" {
+				if len(fields) == 2 {
+					code, err := strconv.Atoi(fields[1])
+					if err == nil {
+						xlt.to[code] = code
+						continue
+					}
+				}
+				log.Fatalf("mangled alt <code %q> on line %d: %v", fields[1], line, err)
+			}
+			// these are the standard encoding lines
 		default:
 			log.Fatalf("file %q contains syntax error on line %d: %q", path, i, fields)
+			continue
 		}
 		target, err := strconv.Atoi(fields[1])
 		if err != nil {
@@ -98,12 +118,12 @@ func loadXlate(path string) map[int]int {
 				log.Fatalf("file %q has bad second field %q in %q: %v", path, rnge[1], fields[0], err)
 			}
 			for n := from; n <= to; n++ {
-				xlt[n] = target
+				xlt.to[n] = target
 				target++
 			}
 			continue
 		}
-		xlt[from] = target
+		xlt.to[from] = target
 	}
 	return xlt
 }
@@ -156,14 +176,14 @@ func enscribe(im *image.Gray16, gl hershey.Glyph) {
 	render(im)
 }
 
-func show(ft *hershey.Font, xl map[int]int, gl int) {
+func show(ft *hershey.Font, xl *XLate, gl int) {
 	detail, err := ft.Strokes(gl)
 	if err != nil {
 		log.Fatalf("font %q glyph %d problem: %v", *font, gl, err)
 	}
 	if xl == nil {
 		fmt.Printf("\nglyph %d: (%d,%d), (%d,%d)\n", gl, detail.Left, detail.Top, detail.Right, detail.Bottom)
-	} else if x, ok := xl[gl]; ok {
+	} else if x, ok := xl.to[gl]; ok {
 		if *skipped {
 			return
 		}
@@ -198,7 +218,7 @@ func main() {
 		log.Printf("known fonts: %q", names)
 		return
 	}
-	var xl map[int]int
+	var xl *XLate
 	if *xlate != "" {
 		xl = loadXlate(fmt.Sprint(*xlate, "/", *font, ".utf8"))
 	}
@@ -213,7 +233,7 @@ func main() {
 				show(ft, xl, code)
 			} else if xl == nil {
 				log.Printf("glyph: %d", code)
-			} else if x, ok := xl[code]; ok {
+			} else if x, ok := xl.to[code]; ok {
 				if *skipped {
 					continue
 				}
@@ -230,7 +250,7 @@ func main() {
 	if *banner != "" {
 		lookup := make(map[int]int)
 		if xl != nil {
-			for k, v := range xl {
+			for k, v := range xl.to {
 				lookup[v] = k
 			}
 		}
@@ -245,7 +265,7 @@ func main() {
 		}
 
 		gls := make(map[int]hershey.Glyph)
-		for k, v := range xl {
+		for k, v := range xl.to {
 			gl, err := ft.Strokes(k)
 			if err != nil {
 				log.Fatalf("unable to find translation for %d (%d) in %q: %v", k, v, *font, err)
